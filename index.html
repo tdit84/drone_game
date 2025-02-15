@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Drone Flight Simulator - Detailed Beach</title>
+    <title>Drone Flight Simulator - Enhanced World</title>
     <style>
       body {
         margin: 0;
@@ -72,25 +72,31 @@
       </div>
     </div>
 
-    <!-- Include Three.js from CDN -->
+    <!-- Include Three.js and SimplexNoise from CDNs -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
     <script>
+      // Global noise for procedural generation of the beach
+      const noise = new SimplexNoise();
+      const beachNoiseScale = 0.01;
+      const beachAmplitude = 2;
+
       // -----------------------------
       // Scene, Camera, and Renderer
       // -----------------------------
       const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x87ceeb); // sky blue
+      scene.background = new THREE.Color(0x87ceeb); // light blue sky
 
       const camera = new THREE.PerspectiveCamera(
         75,
         window.innerWidth / window.innerHeight,
         0.1,
-        1000
+        2000
       );
+      camera.position.set(0, 10, 20);
 
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
-      // Optimize for mobile devices by capping the pixel ratio.
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       document.body.appendChild(renderer.domElement);
 
@@ -99,22 +105,35 @@
       // -----------------------------
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
       scene.add(ambientLight);
+
       const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      directionalLight.position.set(20, 30, 10);
+      directionalLight.position.set(20, 50, 10);
       scene.add(directionalLight);
 
       // -----------------------------
-      // Environment: Beach & Water
+      // Environment: Enhanced Beach and Water
       // -----------------------------
-      // Beach (sand)
-      const beachGeometry = new THREE.PlaneGeometry(500, 500, 32, 32);
+
+      // Create the beach using a displaced plane geometry
+      const beachGeometry = new THREE.PlaneGeometry(500, 500, 128, 128);
       const beachMaterial = new THREE.MeshLambertMaterial({ color: 0xf4a460 });
+      // Displace vertices using Simplex noise to create dunes
+      const posAttr = beachGeometry.attributes.position;
+      for (let i = 0; i < posAttr.count; i++) {
+        let x = posAttr.getX(i);
+        let y = posAttr.getY(i); // Before rotation, the plane lies in the XY plane.
+        // Use noise based on x and y (which later maps to x and z after rotation)
+        let displacement = noise.noise2D(x * beachNoiseScale, y * beachNoiseScale) * beachAmplitude;
+        // Set displacement in the Z direction; after rotation, this becomes vertical (Y axis)
+        posAttr.setZ(i, displacement);
+      }
+      beachGeometry.computeVertexNormals();
       const beach = new THREE.Mesh(beachGeometry, beachMaterial);
       beach.rotation.x = -Math.PI / 2;
       scene.add(beach);
 
-      // Water (semi-transparent blue)
-      const waterGeometry = new THREE.PlaneGeometry(500, 500, 32, 32);
+      // Create water as a separate plane with a subtle animated wave effect
+      const waterGeometry = new THREE.PlaneGeometry(500, 500, 64, 64);
       const waterMaterial = new THREE.MeshLambertMaterial({
         color: 0x1e90ff,
         transparent: true,
@@ -122,77 +141,118 @@
       });
       const water = new THREE.Mesh(waterGeometry, waterMaterial);
       water.rotation.x = -Math.PI / 2;
-      water.position.z = -100; // Positioned to represent the ocean
+      water.position.z = -120; // Position water farther away to simulate the ocean
       scene.add(water);
 
-      // Add some palm trees for extra detail
-      function addPalmTree(x, z) {
+      // Helper function to estimate beach height at a given (x, z) position using the same noise
+      function getBeachHeight(x, z) {
+        return noise.noise2D(x * beachNoiseScale, z * beachNoiseScale) * beachAmplitude;
+      }
+
+      // -----------------------------
+      // Additional Scenery: Trees and Buildings
+      // -----------------------------
+
+      // Function to add a tree (simple trunk and spherical foliage)
+      function addTree(x, z) {
+        const tree = new THREE.Group();
         // Trunk
-        const trunkGeo = new THREE.CylinderGeometry(0.1, 0.15, 3, 8);
+        const trunkGeo = new THREE.CylinderGeometry(0.2, 0.3, 3, 8);
         const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8b4513 });
         const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-        trunk.position.set(x, 1.5, z);
-        scene.add(trunk);
+        trunk.position.y = 1.5;
+        tree.add(trunk);
         // Foliage
-        const foliageGeo = new THREE.SphereGeometry(1, 8, 8);
+        const foliageGeo = new THREE.SphereGeometry(1.2, 8, 8);
         const foliageMat = new THREE.MeshLambertMaterial({ color: 0x228b22 });
         const foliage = new THREE.Mesh(foliageGeo, foliageMat);
-        foliage.position.set(x, 3.3, z);
-        scene.add(foliage);
+        foliage.position.y = 3;
+        tree.add(foliage);
+        // Adjust vertical position based on beach height
+        let yOffset = getBeachHeight(x, z);
+        tree.position.set(x, yOffset, z);
+        scene.add(tree);
       }
-      addPalmTree(-50, -30);
-      addPalmTree(30, -60);
-      addPalmTree(60, -20);
-      addPalmTree(-40, -80);
+
+      // Scatter many trees randomly over the beach area (avoid the far water)
+      for (let i = 0; i < 30; i++) {
+        let x = Math.random() * 400 - 200;
+        let z = Math.random() * 150 - 50; // keep trees away from the deep water area
+        addTree(x, z);
+      }
+
+      // Function to add a building (a box with a simple roof)
+      function addBuilding(x, z) {
+        const building = new THREE.Group();
+        // Main building body with random dimensions
+        let width = Math.random() * 10 + 10;
+        let height = Math.random() * 20 + 20;
+        let depth = Math.random() * 10 + 10;
+        const buildingGeo = new THREE.BoxGeometry(width, height, depth);
+        const buildingMat = new THREE.MeshLambertMaterial({ color: 0x999999 });
+        const mainBuilding = new THREE.Mesh(buildingGeo, buildingMat);
+        mainBuilding.position.y = height / 2;
+        building.add(mainBuilding);
+        // Roof
+        const roofGeo = new THREE.BoxGeometry(width, 2, depth);
+        const roofMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+        const roof = new THREE.Mesh(roofGeo, roofMat);
+        roof.position.y = height + 1;
+        building.add(roof);
+        // Adjust vertical position using beach height
+        let yOffset = getBeachHeight(x, z);
+        building.position.set(x, yOffset, z);
+        scene.add(building);
+      }
+
+      // Add a few buildings near the water edge to evoke a boardwalk or small town
+      for (let i = 0; i < 5; i++) {
+        let x = Math.random() * 300 - 150;
+        let z = Math.random() * 50 - 100; // positioned near the water edge
+        addBuilding(x, z);
+      }
 
       // -----------------------------
       // Drone Model (Detailed)
       // -----------------------------
       const drone = new THREE.Group();
-
       // Central body
       const bodyGeo = new THREE.BoxGeometry(0.6, 0.2, 0.4);
       const bodyMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
       const body = new THREE.Mesh(bodyGeo, bodyMat);
       drone.add(body);
 
-      // Function to create an arm with a rotor at its end.
+      // Function to create an arm with a rotor at its end
       function createArm(angleDeg) {
         const angleRad = THREE.MathUtils.degToRad(angleDeg);
         const armLength = 0.8;
-        // Arm: a thin box
         const armGeo = new THREE.BoxGeometry(armLength, 0.05, 0.1);
         const armMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
         const arm = new THREE.Mesh(armGeo, armMat);
-        // Position the arm so that one end touches the center.
         arm.position.x = (armLength / 2) * Math.cos(angleRad);
         arm.position.z = (armLength / 2) * Math.sin(angleRad);
         arm.rotation.y = angleRad;
         drone.add(arm);
-        // Rotor: a thin cylinder representing the propeller.
+        // Rotor
         const rotorGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.02, 16);
         const rotorMat = new THREE.MeshLambertMaterial({ color: 0x000000 });
         const rotor = new THREE.Mesh(rotorGeo, rotorMat);
         rotor.position.x = armLength * Math.cos(angleRad);
         rotor.position.z = armLength * Math.sin(angleRad);
-        rotor.position.y = 0.1; // Slightly above the body
+        rotor.position.y = 0.1;
         rotor.rotation.x = Math.PI / 2;
         drone.add(rotor);
       }
-      // Create four arms at 45°, 135°, 225°, and 315°
       createArm(45);
       createArm(135);
       createArm(225);
       createArm(315);
-
-      // Set initial position and add the drone to the scene.
-      drone.position.set(0, 3, 0);
+      drone.position.set(0, 5, 0);
       scene.add(drone);
 
       // -----------------------------
       // Controls
       // -----------------------------
-      // Use an object to hold control flags so they can be updated by both keyboard and touch events.
       const controls = {
         moveForward: false,
         moveBackward: false,
@@ -202,7 +262,7 @@
         descend: false,
       };
 
-      // Keyboard event listeners (for desktop)
+      // Keyboard controls (for desktop)
       document.addEventListener("keydown", (event) => {
         switch (event.key) {
           case "ArrowUp":
@@ -264,8 +324,7 @@
         }
       });
 
-      // Touch controls for mobile
-      // This helper function attaches both touch and mouse events.
+      // Touch controls for mobile devices
       function addTouchListeners(btnId, controlName) {
         const btn = document.getElementById(btnId);
         if (!btn) return;
@@ -277,7 +336,7 @@
           e.preventDefault();
           controls[controlName] = false;
         });
-        // Also support mouse events as a fallback.
+        // Also support mouse events
         btn.addEventListener("mousedown", (e) => {
           e.preventDefault();
           controls[controlName] = true;
@@ -291,7 +350,6 @@
           controls[controlName] = false;
         });
       }
-      // Map each button to a control flag.
       addTouchListeners("btn-forward", "moveForward");
       addTouchListeners("btn-backward", "moveBackward");
       addTouchListeners("btn-rotateLeft", "rotateLeft");
@@ -300,16 +358,19 @@
       addTouchListeners("btn-down", "descend");
 
       // -----------------------------
-      // Drone Flight & Camera Follow
+      // Drone Flight and Camera Follow
       // -----------------------------
-      let droneRotation = 0; // in radians
+      let droneRotation = 0; // radians
       const droneSpeed = 0.2;
       const rotationSpeed = 0.03;
+
+      // For water animation
+      let waterTime = 0;
 
       function animate() {
         requestAnimationFrame(animate);
 
-        // Update drone rotation based on controls.
+        // Update drone rotation and movement based on controls
         if (controls.rotateLeft) {
           droneRotation += rotationSpeed;
         }
@@ -318,7 +379,6 @@
         }
         drone.rotation.y = droneRotation;
 
-        // Compute forward direction from current rotation.
         const forwardDir = new THREE.Vector3(
           Math.sin(droneRotation),
           0,
@@ -334,16 +394,27 @@
           drone.position.y += droneSpeed;
         }
         if (controls.descend) {
-          // Prevent the drone from going too low.
           drone.position.y = Math.max(1, drone.position.y - droneSpeed);
         }
 
-        // Smoothly update the camera to follow the drone.
+        // Smooth camera follow
         const cameraOffset = new THREE.Vector3(0, 2, -6);
         cameraOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), droneRotation);
         const targetPosition = drone.position.clone().add(cameraOffset);
         camera.position.lerp(targetPosition, 0.1);
         camera.lookAt(drone.position);
+
+        // Animate water waves with a simple sine/cosine function
+        waterTime += 0.02;
+        const waterPos = water.geometry.attributes.position;
+        for (let i = 0; i < waterPos.count; i++) {
+          let x = waterPos.getX(i);
+          let y = waterPos.getY(i);
+          let wave = Math.sin(x * 0.1 + waterTime) * 0.2 + Math.cos(y * 0.1 + waterTime) * 0.2;
+          waterPos.setZ(i, wave);
+        }
+        waterPos.needsUpdate = true;
+        water.geometry.computeVertexNormals();
 
         renderer.render(scene, camera);
       }
